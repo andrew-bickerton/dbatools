@@ -10,7 +10,11 @@ function New-DbaLogin {
         The target SQL Server(s)
 
     .PARAMETER SqlCredential
-        Allows you to login to SQL Server using alternative credentials
+        Login to the target instance using alternative credentials. Accepts PowerShell credentials (Get-Credential).
+
+        Windows Authentication, SQL Server Authentication, Active Directory - Password, and Active Directory - Integrated are all supported.
+
+        For MFA support, please use Connect-DbaInstance.
 
     .PARAMETER Login
         The Login name(s)
@@ -45,14 +49,17 @@ function New-DbaLogin {
     .PARAMETER Language
         Login's default language
 
-    .PARAMETER PasswordExpiration
-        Enforces password expiration policy. Requires PasswordPolicy to be enabled. Can be $true or $false(default)
+    .PARAMETER PasswordExpirationEnabled
+        Enforces password expiration policy. Requires PasswordPolicyEnforced to be enabled. Can be $true or $false(default)
 
-    .PARAMETER PasswordPolicy
+    .PARAMETER PasswordPolicyEnforced
         Enforces password complexity policy. Can be $true or $false(default)
 
     .PARAMETER Disabled
         Create the login in a disabled state
+
+    .PARAMETER DenyWindowsLogin
+        Create the login and deny Windows login ability
 
     .PARAMETER NewSid
         Ignore sids from the piped login object to generate new sids on the server. Useful when copying login onto the same server
@@ -89,7 +96,7 @@ function New-DbaLogin {
 
     .EXAMPLE
         PS C:\> $securePassword = Read-Host "Input password" -AsSecureString
-        PS C:\> New-DbaLogin -SqlInstance Server1\sql1 -Login Newlogin -SecurePassword $securePassword -PasswordPolicy -PasswordExpiration
+        PS C:\> New-DbaLogin -SqlInstance Server1\sql1 -Login Newlogin -SecurePassword $securePassword -PasswordPolicyEnforced -PasswordExpirationEnabled
 
         Creates a login on Server1\sql1 with a predefined password. The login will have password and expiration policies enforced onto it.
 
@@ -99,7 +106,7 @@ function New-DbaLogin {
         Copies a login [Oldlogin] to the same instance sql1 with the same parameters (including password). New login will have a new sid, a new name [Newlogin] and will not be disabled. Existing login [Newlogin] will be removed prior to creation.
 
     .EXAMPLE
-        PS C:\> Get-DbaLogin -SqlInstance sql1 -Login Login1,Login2 | New-DbaLogin -SqlInstance sql2 -PasswordPolicy -PasswordExpiration -DefaultDatabase tempdb -Disabled
+        PS C:\> Get-DbaLogin -SqlInstance sql1 -Login Login1,Login2 | New-DbaLogin -SqlInstance sql2 -PasswordPolicyEnforced -PasswordExpirationEnabled -DefaultDatabase tempdb -Disabled
 
         Copies logins [Login1] and [Login2] from instance sql1 to instance sql2, but enforces password and expiration policies for the new logins. New logins will also have a default database set to [tempdb] and will be created in a disabled state.
 
@@ -108,12 +115,16 @@ function New-DbaLogin {
 
         Creates a new Windows Authentication backed login on sql1. The login will be part of the public server role.
 
+    .EXAMPLE
+        PS C:\> New-DbaLogin -SqlInstance sql1 -Login domain\user1, domain\user2 -DenyWindowsLogin
+
+        Creates two new Windows Authentication backed login on sql1. The logins would be denied from logging in.
+
     #>
     [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = "Password", ConfirmImpact = "Low")]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSAvoidUsingPlainTextForPassword", "", Justification = "For Parameters Password and MapToCredential")]
     param (
         [parameter(Mandatory, Position = 1)]
-        [Alias("ServerInstance", "SqlServer")]
         [DbaInstanceParameter[]]$SqlInstance,
         [PSCredential]$SqlCredential,
         [Alias("Name", "LoginName")]
@@ -152,20 +163,22 @@ function New-DbaLogin {
         [Alias("Expiration", "CheckExpiration")]
         [parameter(ParameterSetName = "Password")]
         [parameter(ParameterSetName = "PasswordHash")]
-        [switch]$PasswordExpiration,
+        [switch]$PasswordExpirationEnabled,
         [Alias("Policy", "CheckPolicy")]
         [parameter(ParameterSetName = "Password")]
         [parameter(ParameterSetName = "PasswordHash")]
-        [switch]$PasswordPolicy,
+        [switch]$PasswordPolicyEnforced,
         [Alias("Disable")]
         [switch]$Disabled,
+        [switch]$DenyWindowsLogin,
         [switch]$NewSid,
         [switch]$Force,
-        [Alias('Silent')]
         [switch]$EnableException
     )
 
     begin {
+        if ($Force) { $ConfirmPreference = 'none' }
+
         if ($Sid) {
             if ($Sid.GetType().Name -ne 'Byte[]') {
                 foreach ($symbol in $Sid.TrimStart("0x").ToCharArray()) {
@@ -210,6 +223,7 @@ function New-DbaLogin {
             }
 
             foreach ($loginItem in $loginCollection) {
+                $usedTsql = $false
                 #check if $loginItem is an SMO Login object
                 if ($loginItem.GetType().Name -eq 'Login') {
                     #Get all the necessary fields
@@ -218,10 +232,10 @@ function New-DbaLogin {
                     $currentSid = $loginItem.Sid
                     $currentDefaultDatabase = $loginItem.DefaultDatabase
                     $currentLanguage = $loginItem.Language
-                    $currentPasswordExpiration = $loginItem.PasswordExpiration
+                    $currentPasswordExpirationEnabled = $loginItem.PasswordExpirationEnabled
                     $currentPasswordPolicyEnforced = $loginItem.PasswordPolicyEnforced
                     $currentDisabled = $loginItem.IsDisabled
-
+                    $currentDenyWindowsLogin = $loginItem.DenyWindowsLogin
                     #Get previous password
                     if ($loginType -eq 'SqlLogin' -and !($SecurePassword -or $HashedPassword)) {
                         $sourceServer = $loginItem.Parent
@@ -265,15 +279,15 @@ function New-DbaLogin {
                     }
                 } else {
                     $loginName = $loginItem
-                    $currentSid = $currentDefaultDatabase = $currentLanguage = $currentPasswordExpiration = $currentAsymmetricKey = $currentCertificate = $currentCredential = $currentDisabled = $currentPasswordPolicyEnforced = $null
+                    $currentSid = $currentDefaultDatabase = $currentLanguage = $currentPasswordExpirationEnabled = $currentAsymmetricKey = $currentCertificate = $currentCredential = $currentDisabled = $currentPasswordPolicyEnforced = $currentDenyWindowsLogin = $null
 
                     if ($PsCmdlet.ParameterSetName -eq "MapToCertificate") { $loginType = 'Certificate' }
                     elseif ($PsCmdlet.ParameterSetName -eq "MapToAsymmetricKey") { $loginType = 'AsymmetricKey' }
-                    elseif ($loginItem.IndexOf('\') -eq -1) {    $loginType = 'SqlLogin' }
+                    elseif ($loginItem.IndexOf('\') -eq -1) { $loginType = 'SqlLogin' }
                     else { $loginType = 'WindowsUser' }
                 }
 
-                if (($server.LoginMode -ne [Microsoft.SqlServer.Management.Smo.ServerLoginMode]::Mixed) -and ($loginType -eq 'SqlLogin')) {
+                if ((-not $server.IsAzure) -and ($server.LoginMode -ne [Microsoft.SqlServer.Management.Smo.ServerLoginMode]::Mixed) -and ($loginType -eq 'SqlLogin')) {
                     Write-Message -Level Warning -Message "$instance does not have Mixed Mode enabled. [$loginName] is an SQL Login. Enable mixed mode authentication after the migration completes to use this type of login."
                 }
 
@@ -286,11 +300,11 @@ function New-DbaLogin {
                 if ($Language) {
                     $currentLanguage = $Language
                 }
-                if ($PSBoundParameters.Keys -contains 'PasswordExpiration') {
-                    $currentPasswordExpiration = $PasswordExpiration
+                if ($PSBoundParameters.Keys -contains 'PasswordExpirationEnabled') {
+                    $currentPasswordExpirationEnabled = $PasswordExpirationEnabled
                 }
-                if ($PSBoundParameters.Keys -contains 'PasswordPolicy') {
-                    $currentPasswordPolicyEnforced = $PasswordPolicy
+                if ($PSBoundParameters.Keys -contains 'PasswordPolicyEnforced') {
+                    $currentPasswordPolicyEnforced = $PasswordPolicyEnforced
                 }
                 if ($PSBoundParameters.Keys -contains 'MapToAsymmetricKey') {
                     $currentAsymmetricKey = $MapToAsymmetricKey
@@ -303,6 +317,9 @@ function New-DbaLogin {
                 }
                 if ($PSBoundParameters.Keys -contains 'Disabled') {
                     $currentDisabled = $Disabled
+                }
+                if (Test-Bound -Parameter DenyWindowsLogin) {
+                    $currentDenyWindowsLogin = $DenyWindowsLogin
                 }
 
                 #Apply renaming if necessary
@@ -359,7 +376,7 @@ function New-DbaLogin {
                             }
 
                             #CHECK_EXPIRATION: default - OFF
-                            if ($currentPasswordExpiration) {
+                            if ($currentPasswordExpirationEnabled) {
                                 $withParams += ", CHECK_EXPIRATION = ON"
                                 $newLogin.PasswordExpirationEnabled = $true
                             } elseif ($loginType -eq 'SqlLogin') {
@@ -374,6 +391,12 @@ function New-DbaLogin {
                             } elseif ($loginType -eq 'SqlLogin') {
                                 $withParams += ", CHECK_POLICY = OFF"
                                 $newLogin.PasswordPolicyEnforced = $false
+                            }
+
+                            # DENY CONNECT SQL
+                            if ($currentDenyWindowsLogin) {
+                                Write-Message -Level VeryVerbose -Message "Setting $loginName DenyWindowsLogin to $currentDenyWindowsLogin"
+                                $newLogin.DenyWindowsLogin = $currentDenyWindowsLogin
                             }
 
                             #Generate hashed password if necessary
@@ -429,6 +452,7 @@ function New-DbaLogin {
                                 $null = $server.Query($sql)
                                 $newLogin = $server.logins[$loginName]
                                 Write-Message -Level Verbose -Message "Successfully added $loginName to $instance."
+                                $usedTsql = $true
                             } catch {
                                 Stop-Function -Message "Failed to add $loginName to $instance." -Category InvalidOperation -ErrorRecord $_ -Target $instance -Continue
                             }
@@ -445,12 +469,35 @@ function New-DbaLogin {
                                     $sql = "ALTER LOGIN [$loginName] DISABLE"
                                     $null = $server.Query($sql)
                                     Write-Message -Level Verbose -Message "Login $loginName has been disabled on $instance."
+                                    $usedTsql = $true
                                 } catch {
                                     Stop-Function -Message "Failed to disable $loginName on $instance." -Category InvalidOperation -ErrorRecord $_ -Target $instance -Continue
                                 }
                             }
                         }
+                        #Process the DenyWindowsLogin property
+                        if ($currentDenyWindowsLogin -ne $newLogin.DenyWindowsLogin) {
+                            try {
+                                $newLogin.DenyWindowsLogin = $currentDenyWindowsLogin
+                                $newLogin.Alter()
+                                Write-Message -Level Verbose -Message "Login $loginName has been denied from logging in on $instance."
+                            } catch {
+                                Write-Message -Level Verbose -Message "Failed to deny from logging in $loginName on $instance using SMO, trying T-SQL."
+                                try {
+                                    $sql = "DENY CONNECT SQL TO [{0}]" -f $newLogin.Name
+                                    $null = $server.Query($sql)
+                                    Write-Message -Level Verbose -Message "Login $loginName has been denied from logging in on $instance."
+                                    $usedTsql = $true
+                                } catch {
+                                    Stop-Function -Message "Failed to set deny windows login priviledge $loginName on $instance." -Category InvalidOperation -ErrorRecord $_ -Target $instance -Continue
+                                }
+                            }
+                        }
                         #Display results
+                        # If we ever used T-SQL, the smo is some times not up to date and should be refreshed
+                        if ($usedTsql) {
+                            $server.Logins.Refresh()
+                        }
                         Get-DbaLogin -SqlInstance $server -Login $loginName
                     } catch {
                         Stop-Function -Message "Failed to create login $loginName on $instance." -Target $credential -InnerErrorRecord $_ -Continue

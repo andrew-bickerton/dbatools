@@ -14,7 +14,11 @@ function Get-DbaUserPermission {
         The target SQL Server instance or instances.
 
     .PARAMETER SqlCredential
-        Login to the target instance using alternative credentials. Windows and SQL Authentication supported. Accepts credential objects (Get-Credential)
+        Login to the target instance using alternative credentials. Accepts PowerShell credentials (Get-Credential).
+
+        Windows Authentication, SQL Server Authentication, Active Directory - Password, and Active Directory - Integrated are all supported.
+
+        For MFA support, please use Connect-DbaInstance.
 
     .PARAMETER Database
         The database(s) to process - this list is auto-populated from the server. If unspecified, all databases will be processed.
@@ -66,18 +70,14 @@ function Get-DbaUserPermission {
     #>
     [CmdletBinding()]
     param (
-        [parameter(Position = 0, Mandatory, ValueFromPipeline)]
-        [Alias("ServerInstance", "SqlServer", "SqlServers")]
+        [parameter(Mandatory, ValueFromPipeline)]
         [DbaInstanceParameter[]]$SqlInstance,
         [PSCredential]$SqlCredential,
-        [Alias("Databases")]
         [object[]]$Database,
         [object[]]$ExcludeDatabase,
-        [parameter(Position = 1)]
         [switch]$ExcludeSystemDatabase,
         [switch]$IncludePublicGuest,
         [switch]$IncludeSystemObjects,
-        [Alias('Silent')]
         [switch]$EnableException
     )
 
@@ -215,7 +215,8 @@ function Get-DbaUserPermission {
                     Stop-Function -Message "The database $db is not accessible" -Continue
                 }
 
-                $sql = [System.IO.File]::ReadAllText("$script:PSModuleRoot\bin\stig.sql")
+                $sqlFile = Join-Path -Path $script:PSModuleRoot -ChildPath "bin\stig.sql"
+                $sql = [System.IO.File]::ReadAllText("$sqlFile")
                 $sql = $sql.Replace("<TARGETDB>", $db.Name)
 
                 #Create objects in active database
@@ -300,8 +301,5 @@ function Get-DbaUserPermission {
                 #Sashay Away
             }
         }
-    }
-    end {
-        Test-DbaDeprecation -DeprecatedOn "1.0.0" -EnableException:$false -Alias Get-DbaUserLevelPermission
     }
 }

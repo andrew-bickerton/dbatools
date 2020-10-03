@@ -1,4 +1,3 @@
-#ValidationTags#Messaging,FlowControl,Pipeline,CodeStyle#
 function Get-DbaLastBackup {
     <#
     .SYNOPSIS
@@ -13,7 +12,11 @@ function Get-DbaLastBackup {
         The target SQL Server instance or instances.
 
     .PARAMETER SqlCredential
-        Login to the target instance using alternative credentials. Windows and SQL Authentication supported. Accepts credential objects (Get-Credential)
+        Login to the target instance using alternative credentials. Accepts PowerShell credentials (Get-Credential).
+
+        Windows Authentication, SQL Server Authentication, Active Directory - Password, and Active Directory - Integrated are all supported.
+
+        For MFA support, please use Connect-DbaInstance.
 
     .PARAMETER Database
         Specifies one or more database(s) to process. If unspecified, all databases will be processed.
@@ -55,19 +58,21 @@ function Get-DbaLastBackup {
 
         Returns a gridview displaying Server, Database, RecoveryModel, LastFullBackup, LastDiffBackup, LastLogBackup, SinceFull, SinceDiff, SinceLog, Status, DatabaseCreated, DaysSinceDbCreated.
 
+    .EXAMPLE
+        PS C:\> $MyInstances | Get-DbaLastBackup | Where-Object -FilterScript { $_.LastFullBackup.Date -lt (Get-Date).AddDays(-3) } | Format-Table -Property SqlInstance, Database, LastFullBackup
+
+        Returns all databases on the given instances without a full backup in the last three days.
+        Note that the property LastFullBackup is a custom object, with the subproperty Date of type datetime and therefore suitable for comparison with dates.
+
     #>
     [CmdletBinding()]
     param (
         [parameter(Mandatory, ValueFromPipeline)]
-        [Alias("ServerInstance", "SqlServer")]
         [DbaInstanceParameter[]]$SqlInstance,
-        [Alias("Credential")]
         [PSCredential]
         $SqlCredential,
-        [Alias("Databases")]
         [object[]]$Database,
         [object[]]$ExcludeDatabase,
-        [Alias('Silent')]
         [switch]$EnableException
     )
     begin {
@@ -96,17 +101,13 @@ function Get-DbaLastBackup {
             if ($ExcludeDatabase) {
                 $dbs = $dbs | Where-Object Name -NotIn $ExcludeDatabase
             }
-            # Get-DbaBackupHistory -Last would make the job in one query but SMO's (and this) report the last backup of this type irregardless of the chain
-            $FullHistory = Get-DbaBackupHistory -SqlInstance $server -Database $dbs.Name -LastFull -IncludeCopyOnly -Raw
-            $DiffHistory = Get-DbaBackupHistory -SqlInstance $server -Database $dbs.Name -LastDiff -IncludeCopyOnly -Raw
-            $IncrHistory = Get-DbaBackupHistory -SqlInstance $server -Database $dbs.Name -LastLog -IncludeCopyOnly -Raw
+            # Get-DbaDbBackupHistory -Last would make the job in one query but SMO's (and this) report the last backup of this type irregardless of the chain
+            $FullHistory = Get-DbaDbBackupHistory -SqlInstance $server -Database $dbs.Name -LastFull -IncludeCopyOnly -Raw
+            $DiffHistory = Get-DbaDbBackupHistory -SqlInstance $server -Database $dbs.Name -LastDiff -IncludeCopyOnly -Raw
+            $IncrHistory = Get-DbaDbBackupHistory -SqlInstance $server -Database $dbs.Name -LastLog -IncludeCopyOnly -Raw
             foreach ($db in $dbs) {
                 Write-Message -Level Verbose -Message "Processing $db on $instance"
 
-                if ($db.IsAccessible -eq $false) {
-                    Write-Message -Level Warning -Message "The database $db on server $instance is not accessible. Skipping database."
-                    Continue
-                }
                 $LastFullBackup = ($FullHistory | Where-Object Database -eq $db.Name | Sort-Object -Property End -Descending | Select-Object -First 1).End
                 if ($null -ne $LastFullBackup) {
                     $SinceFull_ = [DbaTimeSpan](New-TimeSpan -Start $LastFullBackup)

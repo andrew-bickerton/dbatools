@@ -10,7 +10,11 @@ function Remove-DbaDatabase {
         The target SQL Server instance or instances.You must have sysadmin access and server version must be SQL Server version 2000 or higher.
 
     .PARAMETER SqlCredential
-        Login to the target instance using alternative credentials. Windows and SQL Authentication supported. Accepts credential objects (Get-Credential)
+        Login to the target instance using alternative credentials. Accepts PowerShell credentials (Get-Credential).
+
+        Windows Authentication, SQL Server Authentication, Active Directory - Password, and Active Directory - Integrated are all supported.
+
+        For MFA support, please use Connect-DbaInstance.
 
     .PARAMETER Database
         The database(s) to process - this list is auto-populated from the server. If unspecified, all databases will be processed.
@@ -68,17 +72,13 @@ function Remove-DbaDatabase {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High', DefaultParameterSetName = "Default")]
     param (
         [parameter(Mandatory, ParameterSetName = "instance")]
-        [Alias("ServerInstance", "SqlServer")]
         [DbaInstanceParameter[]]$SqlInstance,
-        [Alias("Credential")]
         [PSCredential]
         $SqlCredential,
         [parameter(Mandatory, ParameterSetName = "instance")]
-        [Alias("Databases")]
         [object[]]$Database,
         [Parameter(ValueFromPipeline, Mandatory, ParameterSetName = "databases")]
         [Microsoft.SqlServer.Management.Smo.Database[]]$InputObject,
-        [Alias('Silent')]
         [switch]$EnableException
     )
 
@@ -95,7 +95,7 @@ function Remove-DbaDatabase {
 
         # Excludes system databases as these cannot be deleted
         $system_dbs = @( "master", "model", "tempdb", "resource", "msdb" )
-        $InputObject = $InputObject | Where-Object { $_.Name -notin $system_dbs}
+        $InputObject = $InputObject | Where-Object { $_.Name -notin $system_dbs }
 
         foreach ($db in $InputObject) {
             try {
@@ -128,8 +128,8 @@ function Remove-DbaDatabase {
                 } catch {
                     try {
                         if ($Pscmdlet.ShouldProcess("$db on $server", "SMO drop")) {
-                            $dbname = $db.Name
-                            $db.Parent.databases[$dbname].Drop()
+                            $dbName = $db.Name
+                            $db.Parent.databases[$dbName].Drop()
                             $server.Refresh()
 
                             [pscustomobject]@{

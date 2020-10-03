@@ -1,4 +1,3 @@
-#ValidationTags#FlowControl,Pipeline#
 function Test-DbaSpn {
     <#
     .SYNOPSIS
@@ -61,12 +60,11 @@ function Test-DbaSpn {
         [Parameter(Mandatory, ValueFromPipeline)]
         [DbaInstance[]]$ComputerName,
         [PSCredential]$Credential,
-        [Alias('Silent')]
         [switch]$EnableException
     )
     begin {
         # spare the cmdlet to search for the same account over and over
-        $resultCache = @{}
+        $resultCache = @{ }
     }
     process {
         foreach ($computer in $ComputerName) {

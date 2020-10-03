@@ -61,6 +61,7 @@ function Connect-SqlInstance {
         [PSCredential]$SqlCredential,
         [int]$StatementTimeout,
         [int]$MinimumVersion,
+        [string]$Database,
         [switch]$AzureUnsupported,
         [switch]$NonPooled
     )
@@ -70,6 +71,6 @@ function Connect-SqlInstance {
         }
         return $SqlInstance.InputObject
     } else {
-        Connect-DbaInstance @PSBoundParameters -ClientName "dbatools PowerShell module - dbatools.io"
+        Connect-DbaInstance @PSBoundParameters -ClientName (Get-DbatoolsConfigValue -FullName 'sql.connection.clientname')
     }
 }

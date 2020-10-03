@@ -1,4 +1,3 @@
-#ValidationTags#Messaging#
 function Find-DbaLoginInGroup {
     <#
     .SYNOPSIS
@@ -52,11 +51,9 @@ function Find-DbaLoginInGroup {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseSingularNouns", "", Justification = "Internal functions are ignored")]
     param (
         [parameter(Mandatory, ValueFromPipeline)]
-        [Alias("ServerInstance", "SqlServer")]
         [DbaInstanceParameter[]]$SqlInstance,
         [PSCredential]$SqlCredential,
         [string[]]$Login,
-        [Alias('Silent')]
         [switch]$EnableException
     )
     begin {
@@ -84,7 +81,7 @@ function Find-DbaLoginInGroup {
                     $group = [System.DirectoryServices.AccountManagement.GroupPrincipal]::FindByIdentity($ads, $groupName);
                     $subgroups = @()
                     foreach ($member in $group.Members) {
-                        $memberDomain = $ads.Name
+                        $memberDomain = $member.Context.Name
                         if ($member.StructuralObjectClass -eq 'group') {
                             $fullName = $memberDomain + "\" + $member.SamAccountName
                             if ($fullName -in $discard) {

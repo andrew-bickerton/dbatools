@@ -39,14 +39,17 @@ function Invoke-DbaAsync {
 
         .PARAMETER EnableException
         By default, when something goes wrong we try to catch it, interpret it and give you a friendly warning message.
-       #>
+
+        .PARAMETER CommandType
+            Specifies the type of command represented by the query string.  Default is Text
+    #>
 
     param (
         [Alias('Connection', 'Conn')]
         [ValidateNotNullOrEmpty()]
         [Microsoft.SqlServer.Management.Common.ServerConnection]$SQLConnection,
 
-        [Parameter(Mandatory, Position = 0, ParameterSetName = "Query")]
+        [Parameter(Mandatory, ParameterSetName = "Query")]
         [string]
         $Query,
 
@@ -57,6 +60,9 @@ function Invoke-DbaAsync {
         [System.Collections.IDictionary]
         $SqlParameters,
 
+        [System.Data.CommandType]
+        $CommandType = 'Text',
+
         [switch]
         $AppendServerInstance,
 
@@ -65,8 +71,7 @@ function Invoke-DbaAsync {
         [switch]
         $MessagesToOutput,
 
-        [switch]
-        $EnableException
+        [switch]$EnableException
     )
 
     begin {
@@ -81,7 +86,7 @@ function Invoke-DbaAsync {
                         Write-Message -Level Verbose -Message "SQL Error:  $Err"
                     } #Shiyang, add the verbose output of exception
                     switch ($ErrorActionPreference.ToString()) {
-                        { 'SilentlyContinue', 'Ignore' -contains $_ } {   }
+                        { 'SilentlyContinue', 'Ignore' -contains $_ } { }
                         'Stop' { throw $Err }
                         'Continue' { throw $Err }
                         Default { Throw $Err }
@@ -164,17 +169,18 @@ function Invoke-DbaAsync {
         $Pieces = $Pieces | Where-Object { $_.Trim().Length -gt 0 }
         foreach ($piece in $Pieces) {
             $cmd = New-Object system.Data.SqlClient.SqlCommand($piece, $conn)
+            $cmd.CommandType = $CommandType
             $cmd.CommandTimeout = $QueryTimeout
 
             if ($null -ne $SqlParameters) {
                 $SqlParameters.GetEnumerator() |
                     ForEach-Object {
-                    if ($null -ne $_.Value) {
-                        $cmd.Parameters.AddWithValue($_.Key, $_.Value)
-                    } else {
-                        $cmd.Parameters.AddWithValue($_.Key, [DBNull]::Value)
-                    }
-                } > $null
+                        if ($null -ne $_.Value) {
+                            $cmd.Parameters.AddWithValue($_.Key, $_.Value)
+                        } else {
+                            $cmd.Parameters.AddWithValue($_.Key, [DBNull]::Value)
+                        }
+                    } > $null
             }
 
             $ds = New-Object system.Data.DataSet
@@ -186,7 +192,7 @@ function Invoke-DbaAsync {
                 $pool.ApartmentState = "MTA"
                 $pool.Open()
                 $runspaces = @()
-                $scriptblock = {
+                $scriptBlock = {
                     param ($da, $ds, $conn, $queue )
                     $conn.FireInfoMessageEventOnUserErrors = $false
                     $handler = [System.Data.SqlClient.SqlInfoMessageEventHandler] { $queue.Enqueue($_) }
@@ -203,7 +209,7 @@ function Invoke-DbaAsync {
                 }
                 $queue = New-Object System.Collections.Concurrent.ConcurrentQueue[string]
                 $runspace = [PowerShell]::Create()
-                $null = $runspace.AddScript($scriptblock)
+                $null = $runspace.AddScript($scriptBlock)
                 $null = $runspace.AddArgument($da)
                 $null = $runspace.AddArgument($ds)
                 $null = $runspace.AddArgument($Conn)

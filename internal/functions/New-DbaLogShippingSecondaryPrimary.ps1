@@ -85,7 +85,6 @@ function New-DbaLogShippingSecondaryPrimary {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = "Low")]
     param (
         [parameter(Mandatory)]
-        [Alias("ServerInstance", "SqlServer")]
         [object]$SqlInstance,
         [PSCredential]$SqlCredential,
         [Parameter(Mandatory)]
@@ -107,7 +106,6 @@ function New-DbaLogShippingSecondaryPrimary {
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
         [string]$RestoreJob,
-        [Alias('Silent')]
         [switch]$EnableException,
         [switch]$Force
     )
@@ -116,7 +114,7 @@ function New-DbaLogShippingSecondaryPrimary {
     try {
         $ServerSecondary = Connect-SqlInstance -SqlInstance $SqlInstance -SqlCredential $SqlCredential
     } catch {
-        Stop-Function -Message "Error occurred while establishing connection to $instance" -Category ConnectionError -ErrorRecord $_ -Target $SqlInstance -Continue
+        Stop-Function -Message "Error occurred while establishing connection to $SqlInstance" -Category ConnectionError -ErrorRecord $_ -Target $SqlInstance -Continue
     }
 
     # Try connecting to the instance
@@ -145,7 +143,7 @@ function New-DbaLogShippingSecondaryPrimary {
 
     # Check of the MonitorServerSecurityMode value is of type string and set the integer value
     if ($MonitorServerSecurityMode -notin 0, 1) {
-        $MonitorServerSecurityMode = switch ($MonitorServerSecurityMode) {"WINDOWS" { 1 } "SQLSERVER" { 0 } }
+        $MonitorServerSecurityMode = switch ($MonitorServerSecurityMode) { "WINDOWS" { 1 } "SQLSERVER" { 0 } }
         Write-Message -Message "Setting monitor server security mode to $MonitorServerSecurityMode." -Level Verbose
     }
 

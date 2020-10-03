@@ -12,7 +12,11 @@ function Remove-DbaDbUser {
         The target SQL Server instance or instances.
 
     .PARAMETER SqlCredential
-        Credential object used to connect to the SQL Server as a different user.
+        Login to the target instance using alternative credentials. Accepts PowerShell credentials (Get-Credential).
+
+        Windows Authentication, SQL Server Authentication, Active Directory - Password, and Active Directory - Integrated are all supported.
+
+        For MFA support, please use Connect-DbaInstance..
 
     .PARAMETER Database
         Specifies the database(s) to process. Options for this list are auto-populated from the server. If unspecified, all databases will be processed.
@@ -71,16 +75,13 @@ function Remove-DbaDbUser {
 
         Drops user1 from all databases it exists in on server 'sqlserver2014'.
     #>
-    [CmdletBinding(DefaultParameterSetName = 'User', SupportsShouldProcess)]
+    [CmdletBinding(DefaultParameterSetName = 'User', SupportsShouldProcess, ConfirmImpact = "Medium")]
     param (
         [parameter(Position = 1, Mandatory, ValueFromPipeline, ParameterSetName = 'User')]
-        [Alias("ServerInstance", "SqlServer")]
         [DbaInstanceParameter[]]$SqlInstance,
         [parameter(ParameterSetName = 'User')]
-        [Alias("Credential")]
         [PSCredential]$SqlCredential,
         [parameter(ParameterSetName = 'User')]
-        [Alias("Databases")]
         [object[]]$Database,
         [parameter(ParameterSetName = 'User')]
         [object[]]$ExcludeDatabase,
@@ -91,11 +92,12 @@ function Remove-DbaDbUser {
         [parameter(ParameterSetName = 'User')]
         [parameter(ParameterSetName = 'Object')]
         [switch]$Force,
-        [Alias('Silent')]
         [switch]$EnableException
     )
 
     begin {
+        if ($Force) { $ConfirmPreference = 'none' }
+
         function Remove-DbUser {
             [CmdletBinding(SupportsShouldProcess)]
             param ([Microsoft.SqlServer.Management.Smo.User[]]$users)
